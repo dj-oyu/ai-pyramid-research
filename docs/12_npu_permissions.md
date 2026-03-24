@@ -109,6 +109,64 @@ sudo systemctl start axllm-serve
 set -e
 KOKORO_DIR=/opt/m5stack/data/kokoro.axera
 TMPWAV=/tmp/kokoro_tts_output.wav
+MAX_CHARS=200
+DEFAULT_VOICE="$KOKORO_DIR/checkpoints/voices/jf_tebukuro.pt"
+DEFAULT_LANG="j"
+
+args=()
+has_voice=false
+has_lang=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --text|-t)
+      shift
+      text="$1"
+      text=$(echo "$text" | sed -E 's|https?://[^ ]*||g')
+      text=$(echo "$text" | sed -E 's/\{[^}]*\}//g')
+      text=$(echo "$text" | sed -E '
+        s/\*{1,3}//g;
+        s/~{2}//g;
+        s/`{1,3}//g;
+        s/\[([^]]*)\]\([^)]*\)/\1/g;
+        s/^#{1,6}\s*//g;
+        s/^\s*[-*+]\s+//g;
+        s/^\s*[0-9]+\.\s+//g;
+        s/[<>|\\]//g;
+      ')
+      text=$(echo "$text" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')
+      # 短文パディング (15文字未満ならフィラーを追加)
+      if [ ${#text} -lt 15 ]; then
+        text="${text}。かな"
+      fi
+      # 長文トランケート
+      if [ ${#text} -gt $MAX_CHARS ]; then
+        text="${text:0:$MAX_CHARS}"
+        last_period=$(echo "$text" | grep -ob '[。．.！？!?]' | tail -1 | cut -d: -f1)
+        if [ -n "$last_period" ] && [ "$last_period" -gt $((MAX_CHARS / 2)) ]; then
+          text="${text:0:$((last_period + 3))}"
+        fi
+      fi
+      args+=(--text "$text")
+      ;;
+    --voice|-v)
+      shift
+      has_voice=true
+      args+=(--voice "$1")
+      ;;
+    --lang|-l)
+      shift
+      has_lang=true
+      args+=(--lang "$1")
+      ;;
+    *)
+      args+=("$1")
+      ;;
+  esac
+  shift
+done
+
+$has_voice || args+=(--voice "$DEFAULT_VOICE")
+$has_lang || args+=(--lang "$DEFAULT_LANG")
 
 sudo systemctl stop axllm-serve 2>/dev/null || true
 sudo PYTHONPATH=/home/admin-user/.local/lib/python3.10/site-packages \
@@ -116,7 +174,7 @@ sudo PYTHONPATH=/home/admin-user/.local/lib/python3.10/site-packages \
   --config "$KOKORO_DIR/checkpoints/config.json" \
   --axmodel_dir "$KOKORO_DIR/models" \
   --output "$TMPWAV" \
-  "$@"
+  "${args[@]}"
 sudo systemctl start axllm-serve &
 aplay "$TMPWAV"
 sudo rm -f "$TMPWAV"
@@ -130,7 +188,9 @@ sudo chmod +x /usr/local/bin/kokoro-tts
 - **Markdown除去**: `# 見出し`, `**太字**`, `~~打消~~`, `` `code` ``, `[text](url)`, リスト記号
 - **URL除去**: `https://...` パターン
 - **JSON除去**: `{...}` ブロック
+- **短文パディング**: 15文字未満は末尾に「。かな」を追加（モデルの短文トリミングバグ回避）
 - **長文トランケート**: 200文字超は最後の句読点で切断 (`MAX_CHARS` で変更可)
+- **デフォルト**: 日本語 (`j`), `jf_tebukuro` ボイス
 
 ### 6. kokoro Python依存パッケージ
 
