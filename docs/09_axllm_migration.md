@@ -26,14 +26,17 @@ ec_proxy                 ← EC制御 (独立)
 
 ### systemd サービス
 
-| サービス | 状態 | 備考 |
-|---------|------|------|
-| axllm-serve | **enabled, active** | port 8000, VLMモデル |
-| llm-sys | enabled, active | CMM管理用に残存 |
-| ec_proxy | enabled, active | ハードウェア制御 |
-| llm-llm | **disabled** | 旧LLM推論 |
-| llm-vlm | **disabled** | 旧VLM推論 |
-| llm-openai-api | **disabled** | 旧OpenAI互換API |
+| サービス | 状態 | 実行ユーザー | 備考 |
+|---------|------|-------------|------|
+| axllm-serve | **enabled, active** | root (非root化不可) | port 8000, VLMモデル |
+| ax-proc-perms | **enabled** | root (oneshot) | NPU procfs権限設定 |
+| llm-sys | enabled, active | root | CMM管理用に残存 |
+| ec_proxy | enabled, active | root | ハードウェア制御 |
+| llm-llm | **disabled** | - | 旧LLM推論 |
+| llm-vlm | **disabled** | - | 旧VLM推論 |
+| llm-openai-api | **disabled** | - | 旧OpenAI互換API |
+
+> NPUデバイス権限の詳細は [12_npu_permissions.md](12_npu_permissions.md) を参照。
 
 ### モデル
 
@@ -61,7 +64,7 @@ gh run list -R AXERA-TECH/ax-llm --limit 5
 ```ini
 [Unit]
 Description=axllm OpenAI-compatible API Server
-After=network.target
+After=network.target ax-proc-perms.service
 
 [Service]
 Type=simple
@@ -73,6 +76,9 @@ StartLimitInterval=0
 [Install]
 WantedBy=multi-user.target
 ```
+
+> axllmはrootで実行（カーネルドライバの制約で非root化不可）。
+> NPUデバイス権限の詳細は [12_npu_permissions.md](12_npu_permissions.md) を参照。
 
 ```bash
 sudo systemctl daemon-reload

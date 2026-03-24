@@ -1,0 +1,252 @@
+# NPU デバイス権限とサービス構成
+
+## 概要
+
+NPU関連デバイスを専用グループ `npu` で管理し、kokoro TTS 等を sudo なしで利用できる構成。
+
+- **axllm serve**: root で実行（`/dev/mem` + カーネル権限の制約で非root化不可）
+- **kokoro TTS**: `npu` グループ + sudoers NOPASSWD で実行（`kokoro-tts` コマンド）
+- **NPU排他制御**: `kokoro-tts` が axllm を自動 stop → TTS実行 → 自動 start
+
+## セットアップ手順
+
+### 1. グループ・ユーザー作成
+
+```bash
+sudo groupadd npu
+sudo useradd -r -s /usr/sbin/nologin -g npu -M axllm  # 将来用
+sudo usermod -aG npu admin-user
+# 再ログインで反映 (id コマンドで npu グループが表示されること)
+```
+
+### 2. NPUデバイス権限
+
+```bash
+# 即時適用
+sudo chgrp npu /dev/npu /dev/ax_mmb_dev /dev/ax_ftc /dev/ax_cmm /dev/ax_sys /dev/ax_pool /dev/ax_base /dev/mem
+sudo chmod 660 /dev/npu /dev/ax_mmb_dev /dev/ax_ftc /dev/ax_cmm /dev/ax_sys /dev/ax_pool /dev/ax_base /dev/mem
+sudo chmod 666 /proc/ax_proc/logctl
+```
+
+udevルールで永続化 (`/etc/udev/rules.d/99-npu.rules`):
+```
+KERNEL=="npu", GROUP="npu", MODE="0660"
+KERNEL=="ax_mmb_dev", GROUP="npu", MODE="0660"
+KERNEL=="ax_ftc", GROUP="npu", MODE="0660"
+KERNEL=="ax_cmm", GROUP="npu", MODE="0660"
+KERNEL=="ax_sys", GROUP="npu", MODE="0660"
+KERNEL=="ax_pool", GROUP="npu", MODE="0660"
+KERNEL=="ax_base", GROUP="npu", MODE="0660"
+KERNEL=="mem", GROUP="npu", MODE="0660"
+```
+
+`/proc/ax_proc/logctl` は procfs のため udev 管轄外。systemd で対応:
+
+`/etc/systemd/system/ax-proc-perms.service`:
+```ini
+[Unit]
+Description=Set /proc/ax_proc permissions for NPU access
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/chmod 666 /proc/ax_proc/logctl
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable ax-proc-perms.service
+```
+
+### 3. sudoers 設定
+
+`/etc/sudoers.d/npu-python`:
+```
+admin-user ALL=(root) NOPASSWD: SETENV: /usr/bin/python3.10, /usr/bin/systemctl stop axllm-serve, /usr/bin/systemctl start axllm-serve, /usr/bin/rm -f /tmp/kokoro_tts_output.wav
+```
+
+```bash
+sudo chmod 440 /etc/sudoers.d/npu-python
+sudo visudo -c  # 構文チェック
+```
+
+### 4. axllm-serve サービス
+
+`/etc/systemd/system/axllm-serve.service`:
+```ini
+[Unit]
+Description=axllm OpenAI-compatible API Server
+After=network.target ax-proc-perms.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/axllm serve /opt/m5stack/data/qwen3-vl-2B-Int4-ax650-ctx4095/ --port 8000
+Restart=always
+RestartSec=3
+StartLimitInterval=0
+
+[Install]
+WantedBy=multi-user.target
+```
+
+axllm は `/dev/mem` アクセスに `CAP_SYS_RAWIO` が必要だが、それだけでは不十分
+（`AX_SYS_Init()` 内部の追加カーネル権限チェックで SIGBUS）。**root で実行する。**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable axllm-serve
+sudo systemctl start axllm-serve
+```
+
+### 5. kokoro-tts コマンド
+
+`/usr/local/bin/kokoro-tts`:
+```bash
+#!/bin/bash
+set -e
+KOKORO_DIR=/opt/m5stack/data/kokoro.axera
+TMPWAV=/tmp/kokoro_tts_output.wav
+
+sudo systemctl stop axllm-serve 2>/dev/null || true
+sudo PYTHONPATH=/home/admin-user/.local/lib/python3.10/site-packages \
+  /usr/bin/python3.10 "$KOKORO_DIR/demo_kokoro_ax.py" \
+  --config "$KOKORO_DIR/checkpoints/config.json" \
+  --axmodel_dir "$KOKORO_DIR/models" \
+  --output "$TMPWAV" \
+  "$@"
+sudo systemctl start axllm-serve &
+aplay "$TMPWAV"
+sudo rm -f "$TMPWAV"
+```
+
+```bash
+sudo chmod +x /usr/local/bin/kokoro-tts
+```
+
+テキスト前処理機能:
+- **Markdown除去**: `# 見出し`, `**太字**`, `~~打消~~`, `` `code` ``, `[text](url)`, リスト記号
+- **URL除去**: `https://...` パターン
+- **JSON除去**: `{...}` ブロック
+- **長文トランケート**: 200文字超は最後の句読点で切断 (`MAX_CHARS` で変更可)
+
+### 6. kokoro Python依存パッケージ
+
+```bash
+# /tmp が小さい場合は先にリマウント
+sudo mount -o remount,size=2G tmpfs /tmp
+
+pip3 install --no-cache-dir pyopenjtalk "fugashi[unidic-lite]" jaconv mojimoji jieba scipy loguru cn2an ordered_set addict
+
+# axengine (AXERA NPU Python推論)
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AXERA-TECH/PyAXEngine', local_dir='/tmp/PyAXEngine')"
+pip3 install /tmp/PyAXEngine/axengine-*.whl
+
+# misaki (G2P テキスト→音素変換、依存なしでインストール)
+pip3 install --no-cache-dir --no-deps misaki
+```
+
+注意: `misaki[en]` は spacy/PyTorch の巨大依存を引くため `--no-deps` で本体のみインストール。
+日本語・中国語TTSには問題なし。英語TTSが必要な場合は別途 spacy の軽量インストールを検討。
+
+## 使い方
+
+```bash
+# 日本語TTS (axllm 自動停止→TTS→自動再開→スピーカー再生)
+kokoro-tts --text "こんにちは、今日はいい天気ですね" --lang j \
+  --voice /opt/m5stack/data/kokoro.axera/checkpoints/voices/jm_kumo.pt
+
+# 中国語TTS
+kokoro-tts --text "你好世界" --lang z \
+  --voice /opt/m5stack/data/kokoro.axera/checkpoints/voices/zf_xiaoyi.pt
+
+# 英語TTS
+kokoro-tts --text "Hello world" --lang a \
+  --voice /opt/m5stack/data/kokoro.axera/checkpoints/voices/af_heart.pt
+```
+
+### パラメータ
+
+| パラメータ | 説明 |
+|-----------|------|
+| `--text` | 読み上げテキスト |
+| `--lang` | 言語 (`j`=日本語, `z`=中国語, `a`=英語) |
+| `--voice` | 声紋ファイル (.pt) |
+| `--fade_out` | 末尾フェードアウト秒数 (デフォルト 0.3) |
+| `--max_len` | 最大分句長 (デフォルト 96) |
+
+### 声紋ファイル
+
+```
+checkpoints/voices/
+├── af_heart.pt      # 英語女性
+├── jf_alpha.pt      # 日本語女性
+├── jm_kumo.pt       # 日本語男性
+└── zf_xiaoyi.pt     # 中国語女性
+```
+
+## 性能
+
+| 指標 | 値 |
+|------|-----|
+| 初期化時間 | ~2.5s |
+| 推論 RTF | 0.29〜0.38 (約3倍速) |
+| サンプルレート | 24000 Hz |
+| axllm 停止→復帰 | ~15s (モデルロード含む) |
+
+## 現在のサービス構成
+
+```
+axllm-serve (root)
+  └── axllm serve :8000  ← VLM/LLM推論
+
+ax-proc-perms (root, oneshot)
+  └── chmod 666 /proc/ax_proc/logctl
+
+llm-sys (root)
+  └── CMM管理 (StackFlow残存)
+
+ec_proxy (root)
+  └── ハードウェア制御
+```
+
+## NPU排他制約
+
+NPU (`AX_ENGINE`) は排他リソース。2プロセスからの同時アクセスは SEGV になる。
+
+`kokoro-tts` コマンドはこれを自動管理:
+1. `systemctl stop axllm-serve` → NPU解放
+2. kokoro 推論実行
+3. `systemctl start axllm-serve &` → バックグラウンドで復帰
+4. `aplay` で音声再生（axllm ロードと並行）
+
+## トラブルシューティング
+
+### `cannot open file /dev/mem, errno:13, Permission denied`
+
+`/dev/mem` が `npu` グループでない:
+```bash
+sudo chgrp npu /dev/mem && sudo chmod 660 /dev/mem
+```
+
+### `cannot open file /dev/mem, errno:1, Operation not permitted`
+
+`CAP_SYS_RAWIO` が不足。sudoers で NOPASSWD 設定済みの `sudo python3.10` 経由で実行する。
+`setcap` はこのカーネル (5.15.73) では xattr 非対応のため使用不可。
+
+### `Failed to open /proc/ax_proc/logctl`
+
+書き込み権限が必要 (644 ではなく 666):
+```bash
+sudo chmod 666 /proc/ax_proc/logctl
+```
+
+### axllm-serve が SEGV で起動ループ
+
+kokoro や他のNPUプロセスが残っている可能性:
+```bash
+ps aux | grep -E "python3|kokoro|axllm" | grep -v grep
+sudo systemctl restart axllm-serve
+```
