@@ -1,0 +1,13 @@
+[Unit]
+Description=axllm OpenAI-compatible API Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/axllm serve /opt/m5stack/data/qwen3-vl-2B-Int4-ax650-ctx4095/ --port 8000
+Restart=always
+RestartSec=3
+StartLimitInterval=0
+
+[Install]
+WantedBy=multi-user.target
