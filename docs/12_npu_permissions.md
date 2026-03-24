@@ -154,9 +154,11 @@ pip3 install --no-cache-dir --no-deps misaki
 ## 使い方
 
 ```bash
-# 日本語TTS (axllm 自動停止→TTS→自動再開→スピーカー再生)
-kokoro-tts --text "こんにちは、今日はいい天気ですね" --lang j \
-  --voice /opt/m5stack/data/kokoro.axera/checkpoints/voices/jm_kumo.pt
+# 最もシンプル (デフォルト: 日本語, jf_tebukuro ボイス)
+kokoro-tts --text "こんにちは、今日はいい天気ですね"
+
+# ボイス指定
+kokoro-tts --text "こんにちは" --voice /opt/m5stack/data/kokoro.axera/checkpoints/voices/jm_kumo.pt
 
 # 中国語TTS
 kokoro-tts --text "你好世界" --lang z \
@@ -169,23 +171,27 @@ kokoro-tts --text "Hello world" --lang a \
 
 ### パラメータ
 
-| パラメータ | 説明 |
-|-----------|------|
-| `--text` | 読み上げテキスト |
-| `--lang` | 言語 (`j`=日本語, `z`=中国語, `a`=英語) |
-| `--voice` | 声紋ファイル (.pt) |
-| `--fade_out` | 末尾フェードアウト秒数 (デフォルト 0.3) |
-| `--max_len` | 最大分句長 (デフォルト 96) |
+| パラメータ | 説明 | デフォルト |
+|-----------|------|-----------|
+| `--text` | 読み上げテキスト | (必須) |
+| `--lang` | 言語 (`j`=日本語, `z`=中国語, `a`=英語) | `j` |
+| `--voice` | 声紋ファイル (.pt) | `jf_tebukuro.pt` |
+| `--fade_out` | 末尾フェードアウト秒数 | 0.3 |
+| `--max_len` | 最大分句長 | 96 |
 
-### 声紋ファイル
+### 日本語声紋ファイル
 
-```
-checkpoints/voices/
-├── af_heart.pt      # 英語女性
-├── jf_alpha.pt      # 日本語女性
-├── jm_kumo.pt       # 日本語男性
-└── zf_xiaoyi.pt     # 中国語女性
-```
+| ファイル | 性別 | 備考 |
+|---------|------|------|
+| `jf_tebukuro.pt` | 女性 | **デフォルト**。やや機械的な響き |
+| `jf_alpha.pt` | 女性 | ニュートラル |
+| `jf_gongitsune.pt` | 女性 | 「ごん狐」風 |
+| `jf_nezumi.pt` | 女性 | 「ねずみの嫁入り」風 |
+| `jm_kumo.pt` | 男性 | 「蜘蛛の糸」風 |
+
+その他: 英語 (American/British) 21声、中国語 8声、ヒンディー語 4声、
+スペイン語 3声、フランス語/イタリア語/ポルトガル語 各1-3声。
+全リストは `ls /opt/m5stack/data/kokoro.axera/checkpoints/voices/` で確認。
 
 ## 性能
 
