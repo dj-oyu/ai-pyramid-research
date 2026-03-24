@@ -198,18 +198,26 @@ sudo chmod +x /usr/local/bin/kokoro-tts
 # /tmp が小さい場合は先にリマウント
 sudo mount -o remount,size=2G tmpfs /tmp
 
+# 基本依存 (日本語・中国語TTS)
 pip3 install --no-cache-dir pyopenjtalk "fugashi[unidic-lite]" jaconv mojimoji jieba scipy loguru cn2an ordered_set addict
 
 # axengine (AXERA NPU Python推論)
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AXERA-TECH/PyAXEngine', local_dir='/tmp/PyAXEngine')"
 pip3 install /tmp/PyAXEngine/axengine-*.whl
 
-# misaki (G2P テキスト→音素変換、依存なしでインストール)
-pip3 install --no-cache-dir --no-deps misaki
+# misaki (G2P テキスト→音素変換) + 英語TTS用依存一式
+# misaki 0.8.0 を使用 (0.9.x は未リリースの phonemizer API に依存)
+sudo apt install -y espeak-ng
+pip3 install --no-cache-dir --no-deps "misaki==0.8.0" espeakng_loader
+pip3 install --no-cache-dir phonemizer segments num2words
+pip3 install --no-cache-dir "spacy==3.7.5"
 ```
 
-注意: `misaki[en]` は spacy/PyTorch の巨大依存を引くため `--no-deps` で本体のみインストール。
-日本語・中国語TTSには問題なし。英語TTSが必要な場合は別途 spacy の軽量インストールを検討。
+注意:
+- `misaki[en]` を直接インストールすると PyTorch → CUDA (数百MB) を引くため、個別インストールする
+- `spacy==3.7.5` は `thinc` をソースビルドするため ARM 環境で十数分かかる
+- `en_core_web_sm` モデル (12.8MB) は初回実行時に自動ダウンロードされる
+- 英語TTS が不要なら `espeak-ng` 以降の行は省略可
 
 ## 使い方
 
