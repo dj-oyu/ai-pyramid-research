@@ -173,7 +173,7 @@ sudo systemctl restart axllm-serve
 ```
 /opt/m5stack/data/
 ├── qwen3-vl-2B-Int4-ax650-ctx4095/   # VLMモデル (3.1GB, 稼働中)
-├── qwen3-1.7B-ax650/                  # テキストLLM (2.7GB, 待機)
+├── (qwen3-1.7B-ax650/)                # テキストLLM (2.7GB) ※ストレージ逼迫により削除済み
 └── kokoro.axera/                       # TTS (554MB)
     ├── models/                         # NPUモデル
     ├── checkpoints/voices/             # 声紋ファイル
