@@ -14,29 +14,24 @@ GitHub: https://github.com/m5stack/StackFlow
 
 ## アーキテクチャ全体図
 
-```
-[ユーザー / アプリケーション]
-       │
-       ▼
-[OpenAI互換API :8000]          ← llm_openai_api-1.10 (launcher) → FastAPI (Python)
-       │ TCP socket :10001
-       ▼
-┌──────────────────────────────────────────────────────┐
-│  StackFlow デーモン群（ネイティブ C++ バイナリ）         │
-│                                                      │
-│  llm_sys-1.6   ← システム管理・CMM監視・モデル管理     │
-│      │ ZMQ                                           │
-│      ├── llm_llm-1.12  ← LLMテキスト推論エンジン      │
-│      └── llm_vlm-1.11  ← VLM画像+テキスト推論エンジン  │
-│                                                      │
-│  [tokenizer_*.py]  ← トークナイザーHTTPサーバー         │
-└──────────────────────────────────────────────────────┘
-       │ AX_ENGINE API
-       ▼
-[Axera NPU Hardware]  ← .axmodel を直接実行
-       │
-       ▼
-[/soc/lib/ SDK ライブラリ群]
+```mermaid
+graph TD
+  User["ユーザー / アプリケーション"]
+  API["OpenAI互換API :8000<br/>llm_openai_api-1.10 → FastAPI (Python)"]
+  User --> API
+
+  subgraph StackFlow["StackFlow デーモン群（ネイティブ C++ バイナリ）"]
+    SYS["llm_sys-1.6<br/>システム管理・CMM監視・モデル管理"]
+    LLM["llm_llm-1.12<br/>LLMテキスト推論エンジン"]
+    VLM["llm_vlm-1.11<br/>VLM画像+テキスト推論エンジン"]
+    TOK["tokenizer_*.py<br/>トークナイザーHTTPサーバー"]
+    SYS -- ZMQ --> LLM
+    SYS -- ZMQ --> VLM
+  end
+
+  API -- "TCP :10001" --> SYS
+  StackFlow -- "AX_ENGINE API" --> NPU["Axera NPU Hardware<br/>.axmodel を直接実行"]
+  NPU --> SDK["/soc/lib/ SDK ライブラリ群"]
 ```
 
 ## プロセス一覧（稼働中）

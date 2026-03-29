@@ -219,6 +219,27 @@ pip3 install --no-cache-dir "spacy==3.7.5"
 - `en_core_web_sm` モデル (12.8MB) は初回実行時に自動ダウンロードされる
 - 英語TTS が不要なら `espeak-ng` 以降の行は省略可
 
+**pip 一括アップデートに注意**: `pip install --upgrade` をパッケージ単体で回すと依存グラフ全体を考慮しないため、spacy/thinc/pydantic 間で不整合が起きる。特に以下のチェーンが壊れやすい:
+
+```mermaid
+graph LR
+  kokoro --> misaki
+  misaki --> spacy
+  spacy --> thinc
+  spacy --> en_core_web_sm["en_core_web_sm<br/>(spacyバージョンに合わせる)"]
+  thinc --> blis
+  thinc --> confection
+  thinc --> pydantic-core
+```
+
+壊れた場合の修復:
+```bash
+# 整合するバージョンセットを一括指定でインストール
+pip3 install --user spacy==3.8.14 thinc==8.3.13 confection==1.3.3 blis==1.3.3 pydantic pydantic-core
+python3 -m spacy download en_core_web_sm  # spacyバージョンに合ったモデルを再取得
+pip3 check  # 依存不整合の確認
+```
+
 ## 使い方
 
 ```bash
@@ -272,18 +293,12 @@ kokoro-tts --text "Hello world" --lang a \
 
 ## 現在のサービス構成
 
-```
-axllm-serve (root)
-  └── axllm serve :8000  ← VLM/LLM推論
-
-ax-proc-perms (root, oneshot)
-  └── chmod 666 /proc/ax_proc/logctl
-
-llm-sys (root)
-  └── CMM管理 (StackFlow残存)
-
-ec_proxy (root)
-  └── ハードウェア制御
+```mermaid
+graph TD
+  A["axllm-serve (root)"] --> A1["axllm serve :8000 — VLM/LLM推論"]
+  B["ax-proc-perms (root, oneshot)"] --> B1["chmod 666 /proc/ax_proc/logctl"]
+  C["llm-sys (root)"] --> C1["CMM管理 (StackFlow残存)"]
+  D["ec_proxy (root)"] --> D1["ハードウェア制御"]
 ```
 
 ## NPU排他制約

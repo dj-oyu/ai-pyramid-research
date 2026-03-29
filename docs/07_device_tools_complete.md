@@ -159,10 +159,12 @@ TCP接続先: `127.0.0.1:10001`
 
 `input` フィールドで他のユニットのwork_idを指定することで、ユニット間をパイプラインで接続できる:
 
-```
-[ボタン/マイク] → [KWS] → [ASR] → [LLM] → [TTS] → [スピーカー]
-                   ↓         ↓        ↓
-                  kws.bool  asr.utf-8  llm.utf-8  (ストリーミング出力)
+```mermaid
+graph LR
+  MIC["ボタン/マイク"] --> KWS --> ASR --> LLM --> TTS --> SPK["スピーカー"]
+  KWS -. "kws.bool" .-> OUT["ストリーミング出力"]
+  ASR -. "asr.utf-8" .-> OUT
+  LLM -. "llm.utf-8" .-> OUT
 ```
 
 デモアプリの実行: `python3 /usr/local/m5stack/bin/AI_Pyramid_Demo.py --kws "HI PYRAMID"`
