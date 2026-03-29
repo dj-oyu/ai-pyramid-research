@@ -8,7 +8,7 @@
 | **Piper-Plus** | CPU only | ja/en/zh/es/fr/pt | ~100MB | ~0.2 | OSSフォーク、ONNX |
 | MeloTTS (StackFlow) | NPU | en/ja/zh | 60MB CMM | ~0.3推定 | プリインストール済み |
 | CosyVoice (StackFlow) | CPU主体 | zh/en/ja/ko | 759MB | 不明 | プリインストール済み |
-| Qwen3-TTS-1.7B | NPU | 10言語 | 2.4GB | 不明 | 最新、ドキュメント未整備 |
+| Qwen3-TTS-1.7B | NPU | 10言語 | 2.6GB | 不明 | ランタイム未対応、VoiceDesign対応 |
 
 ## 詳細評価
 
@@ -156,27 +156,38 @@ Alibaba FunAudioLLMのCosyVoice。`/opt/m5stack/share/cosy-voice/` に759MBのPy
 
 ---
 
-### 5. Qwen3-TTS-12Hz-1.7B-VoiceDesign-AX650（最新、未検証）
+### 5. Qwen3-TTS-12Hz-1.7B-VoiceDesign-AX650（未検証、ランタイム未対応）
 
-AXERA-TECHがAX650向けに変換したQwen3-TTS。19時間前に更新（2026-03-24時点）。
+AXERA-TECHがAX650向けにPulsar2で変換したQwen3-TTS。2026-03-19頃アップロード、最終更新 2026-03-27。
+
+**上流モデル:** [Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign)（2026-01-22リリース、月間643Kダウンロード）
 
 **特徴:**
 - 10言語対応（中/英/日/韓/独/仏/露/葡/西/伊）
-- 3秒音声クローニング
-- 感情表現制御
+- VoiceDesign: 自然言語テキストで声質・感情・韻律を指示（参照音声不要）
 - 元モデルのストリーミング遅延: 97ms
+- 論文: [arXiv:2601.15621](https://arxiv.org/abs/2601.15621)
 
-**サイズ:** 2.4GB（ダウンロード）
+**AX650変換モデル構成 (~2.6GB):**
+- `talker/` (~2.35GB): 28層分割 `.axmodel` (各~61MB) + text_embedding (622MB) + codec_embedding (12.6MB)
+- `code-predictor/` (~250MB): 5層 `.axmodel` + 15個の lm_head + codec embeddings
+
+**現状 (2026-03-30時点):**
+- README は空。使い方のドキュメントなし
+- **ax-llm**: Qwen3-TTS 対応は未実装（最新コミット 2026-03-27）
+- **ax_tts_api**: Kokoro TTS のみ対応。Qwen3-TTS 統合は未着手
+- コミュニティでの議論・動作報告なし
+- モデルファイルは変換済みだが、**推論ランタイムが未対応のため実行不可**
 
 **懸念:**
-- READMEが空、ドキュメント未整備（出たばかり）
 - 1.7Bパラメータ → CMM使用量が大きい（推定1.5GB+）
-- axllmのVLMと同時にCMMに載るか不明
-- 動作実績なし
+- axllmのVLM (CMM ~2.9GB) と同時にCMMに載るか不明（6GB上限）
+- ランタイム対応待ちのステージング段階
 
-**結論:** 有望だが時期尚早。ドキュメントが整備されてから検討。
+**結論:** kokoro.axera の上位互換になり得る（多言語・VoiceDesign）が、ランタイム対応待ち。ax-llm または ax_tts_api に統合されるまで実機では使えない。
 
 - HuggingFace: https://huggingface.co/AXERA-TECH/Qwen3-TTS-12Hz-1.7B-VoiceDesign-AX650
+- 上流GitHub: https://github.com/QwenLM/Qwen3-TTS
 
 ---
 
