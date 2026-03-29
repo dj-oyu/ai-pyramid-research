@@ -206,18 +206,28 @@ python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AX
 pip3 install /tmp/PyAXEngine/axengine-*.whl
 
 # misaki (G2P テキスト→音素変換) + 英語TTS用依存一式
-# misaki 0.8.0 を使用 (0.9.x は未リリースの phonemizer API に依存)
 sudo apt install -y espeak-ng
-pip3 install --no-cache-dir --no-deps "misaki==0.8.0" espeakng_loader
+pip3 install --no-cache-dir --no-deps misaki espeakng_loader
 pip3 install --no-cache-dir phonemizer segments num2words
-pip3 install --no-cache-dir "spacy==3.7.5"
+pip3 install --no-cache-dir "spacy==3.8.14"
+
+# phonemizer 3.3.0 互換パッチ (set_data_path 削除対応)
+MISAKI_ESPEAK=$(python3 -c "import misaki.espeak; print(misaki.espeak.__file__)")
+sed -i 's/EspeakWrapper\.set_data_path(\(.*\))/EspeakWrapper.data_path = \1/' "$MISAKI_ESPEAK"
+
+# espeakng-loader のハードコードされたデータパスへシンボリックリンク作成
+ESPEAK_DATA=$(python3 -c "import espeakng_loader; print(espeakng_loader.get_data_path())")
+sudo mkdir -p /home/runner/work/espeakng-loader/espeakng-loader/espeak-ng/_dynamic/share
+sudo ln -sf "$ESPEAK_DATA" /home/runner/work/espeakng-loader/espeakng-loader/espeak-ng/_dynamic/share/espeak-ng-data
 ```
 
 注意:
 - `misaki[en]` を直接インストールすると PyTorch → CUDA (数百MB) を引くため、個別インストールする
-- `spacy==3.7.5` は `thinc` をソースビルドするため ARM 環境で十数分かかる
+- `spacy==3.8.14` は `thinc` をソースビルドするため ARM 環境で十数分かかる
 - `en_core_web_sm` モデル (12.8MB) は初回実行時に自動ダウンロードされる
 - 英語TTS が不要なら `espeak-ng` 以降の行は省略可
+- phonemizer 3.3.0 で `EspeakWrapper.set_data_path()` が削除されたため、misaki の espeak.py にパッチが必要
+- espeakng-loader は CI ビルド時のデータパスがハードコードされているため、シンボリックリンクで対応
 
 **pip 一括アップデートに注意**: `pip install --upgrade` をパッケージ単体で回すと依存グラフ全体を考慮しないため、spacy/thinc/pydantic 間で不整合が起きる。特に以下のチェーンが壊れやすい:
 
