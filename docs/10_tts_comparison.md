@@ -229,3 +229,122 @@ axllmがTTSモデルもserveできるようになれば最もシンプル。
 | 3 | Qwen3-TTS | 将来有望だが未成熟 |
 | - | MeloTTS | StackFlow依存、単独利用不可 |
 | - | CosyVoice | 重い、GPU向け、削除候補 |
+
+---
+
+## 追記: 実使用感とコミュニティ評価 (2026-05 リサーチ)
+
+Reddit (r/LocalLLaMA), Hacker News, GitHub Issues, 各種レビュー記事から収集した実使用感の整理。
+
+### kokoro 評価まとめ
+
+#### 👍 ポジティブ評価
+- **TTS Arena leaderboard #1** (2026年1月、82M パラメータで MOS 4.2)
+  - XTTS-v2 (467M)・MetaVoice (1.2B) 等の大型モデルを撃破
+- "af_heart" 等の英語ボイスは **非常にクリーン**
+- **「音節が突然増える失敗」が起きない** (他TTSにありがちな破綻が少なく信頼性高い)
+- 句読点・ポーズ処理が優秀、自然な区切り
+- CPUでもほぼリアルタイム動作 (このデバイスは NPU で RTF 0.067)
+- 日本語/韓国語が小サイズの割に良好
+
+#### 👎 ネガティブ評価
+- 「**抑揚が大半のフレーズで不自然**」「機械的なモジュレーション感が残る」(HN コメント)
+- **感情表現が乏しい**、フラットな読み上げになりがち
+- **ボイスクローン非対応** (XTTS-v2/ElevenLabs のような複製不可)
+- **短文 (単語1個など) で品質が落ちる、長文向き** ← 会話アシスタント用途では地味に問題
+- 中国語/日本語で **phonemizer起因の品質問題** を報告するユーザーあり
+- 多言語ボイスは長文合成で時々不安定
+- ローカルインストール後も HuggingFace への接続を試みるバグ報告あり (Kokoro-TTS-Local Issue #23)
+
+#### 会話アシスタント用途での運用ヒント
+- 短文応答 (「はい」「了解」等) の品質に注意 → LLM プロンプトで多少冗長な返答に整形すると良い
+- 感情を出したい場面ではテキスト側の工夫が必要 (LLMで感嘆符・繰り返しを誘導)
+
+### MeloTTS 補足
+
+- **GitHub Issue #241**: 英語で "chokin" → "cokin"、"plugin" → "ploogin" など **発音不安定バグ** あり
+- 日本語の specific な評価情報は少ない (議論薄 = ユーザー基盤が薄い)
+- 軽量・低遅延は実証済み (AX650 RTF 0.125)
+- kokoro と比べ **コミュニティ熱量・継続的議論が少ない** → トラブル時のサポート薄
+- StackFlow 版 (プリインストール、CMM 60MB) と **AXERA-TECH/MeloTTS** (HF、独立利用可) は別物
+- pip 依存スタックが kokoro より大幅に軽い (spacy/jieba/unidic_lite/misaki 等不要)
+  - kokoro 削除して MeloTTS へ移行すれば pip 500MB+ 節約可能
+
+### 6. Irodori-TTS (このデバイスでは非対応)
+
+Flow Matching ベースの日本語特化 TTS。zero-shot voice cloning と絵文字感情制御が特徴。
+
+**アーキテクチャ:**
+- Rectified Flow Diffusion Transformer (RF-DiT) over continuous DACVAE latents
+- 500M params (v3 では 2.5B あり)、F32 で約 2GB
+- llm-jp/llm-jp-3-150m 初期化のテキストエンコーダ
+- Semantic-DACVAE-Japanese-32dim で 48kHz 出力
+
+**このデバイスでの実行性:**
+- ❌ **CPU推論**: Ryzen 7 9700X で 5秒音声に 90秒 (RTF 18)。A55@1.5GHz では推定 15-45分/5秒で実用不可
+- ❌ **NPU移植**: Flow Matching の反復サンプリング + 複雑な DiT を pulsar2 で axmodel 化する実績なし。公式 axmodel 配布なし
+- ❌ **依存スタック**: torch≥2.10.0, torchcodec, numba 等。CUDA 12.8 前提
+
+**コミュニティでの既知問題:**
+- 公式が **「漢字読みが弱い、事前にひらがな変換推奨」** と明言 (G2P が脆弱)
+- 音声品質自体は高評価
+
+**結論:** 候補から除外。やりたければ PC で生成 + ストリーム再生のみ現実的。
+
+- GitHub: https://github.com/Aratako/Irodori-TTS
+- HuggingFace: https://huggingface.co/Aratako/Irodori-TTS-500M-v3
+- ライセンス: MIT
+
+### Qwen3-TTS 続報 (2026-05 時点)
+
+`AXERA-TECH/Qwen3-TTS-12Hz-1.7B-VoiceDesign-AX650` と `0.6B-Base-AX650` 両方を再調査:
+
+- **README が空** (31 バイト、初期コミットのみ、使用方法ドキュメントなし)
+- 1.7B-VoiceDesign: Apache-2.0、`code-predictor/` + `talker/` (~2.6GB)
+- 0.6B-Base: MIT、おそらく参照音声によるボイスクローン版
+- **ランタイム未対応** (ax-llm/ax_tts_api への統合待ち、変更なし)
+- 上流 Qwen3-TTS は日本語含む10言語、VoiceDesign で自然言語による声質指定可
+- 3-6ヶ月後に再評価する候補
+
+### 日本語TTSの構造的限界 (全モデル共通課題)
+
+> **日本語TTSの自然さの上限は G2P (grapheme-to-phoneme) レイヤーで決まる**、モデルアーキテクチャではない (lilting.ch)
+
+- MeCab系の形態素解析: 文脈無視・辞書1択読み
+- 全モデル共通の弱点: **固有名詞・当て字 (ateji)・新語/スラング**
+- 大規模多言語モデル (CosyVoice2等) は subword tokenizer + 大規模事前学習で end-to-end 学習し、G2P 依存を回避する方向
+- 小型モデル (kokoro等) でこれを補うには: **テキスト前処理で読み仮名を明示** するのが現実解
+
+### 追加候補: Style-Bert-VITS2 / AivisSpeech (未検証)
+
+VITS系の軽量派生、日本語アシスタント向けに評判が良い:
+
+- **CPU動作** (NPU不要)、Mac/Windows/Linux 対応
+- 数値による感情・スタイル制御 (Bert-VITS2 系統)
+- OpenJTalk + MeCab 使用 (日本語特化)
+- 「**ローカルアシスタント・常時稼働に実用的**」評価多数 (lilting.ch)
+- AX650 axmodel は未確認、CPU負荷検証が必要
+- 候補としてリスト入りさせる価値あり (将来 NPU 移植実績が出れば本命候補に)
+
+### まとめ表 (拡張版)
+
+| 優先度 | TTS | 理由 |
+|--------|-----|------|
+| 1 | **kokoro.axera** | NPU高速(RTF 0.067)、日本語対応、C++バイナリ、TTS Arena #1 (2026-01)、ただし短文と感情表現に弱 |
+| 2 | **Piper-Plus** | NPU競合なし、日本語品質高、軽量、ストリーミング対応 |
+| 2.5 | **AXERA-TECH/MeloTTS** (HF版) | NPU動作 (RTF 0.125)、pip依存軽い、ただし発音バグ報告あり |
+| 3 | Qwen3-TTS | 将来有望だが未成熟、ランタイム待ち |
+| - | Style-Bert-VITS2/AivisSpeech | CPU動作、日本語アシスタント向け実績、AX650未検証 |
+| - | Irodori-TTS | 高品質だがこのデバイスで実行不可、漢字読み弱 |
+| - | MeloTTS (StackFlow) | StackFlow依存、単独利用不可 |
+| - | CosyVoice | 重い、GPU向け、削除候補 (CosyVoice3 AX650版は英語専用で日本語非対応) |
+
+### 参考リンク (2026-05 リサーチ)
+
+- [Kokoro TTS Review (ReviewNexa)](https://reviewnexa.com/kokoro-tts-review/)
+- [Hacker News: Kokoro discussion](https://news.ycombinator.com/item?id=45114884)
+- [VoxCPM2 and OSS TTS 2026 (lilting.ch)](https://lilting.ch/en/articles/voxcpm2-tokenizer-free-local-tts)
+- [MeloTTS pronunciation Issue #241](https://github.com/myshell-ai/MeloTTS/issues/241)
+- [Best TTS Models 2026 (CodeSOTA)](https://www.codesota.com/guides/tts-models)
+- [ElevenLabs Alternatives 2026 (ocdevel)](https://ocdevel.com/blog/20250720-tts)
+- [Kokoro-TTS-Local Issue #23 (network connection issue)](https://github.com/PierrunoYT/Kokoro-TTS-Local/issues/23)
